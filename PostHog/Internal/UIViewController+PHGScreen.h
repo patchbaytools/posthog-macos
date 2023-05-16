@@ -1,14 +1,14 @@
-#include <TargetConditionals.h>
+// #include <TargetConditionals.h>
 
-#if !TARGET_OS_OSX
-#import <UIKit/UIKit.h>
-#endif
+// #if !TARGET_OS_OSX
+// #import <UIKit/UIKit.h>
+// #endif
 
-@interface UIViewController (PHGScreen)
+// @interface UIViewController (PHGScreen)
 
-+ (BOOL)isAppExtension;
+// + (BOOL)isAppExtension;
 
-+ (void)phg_swizzleViewDidAppear;
-+ (UIViewController *)phg_topViewController;
+// + (void)phg_swizzleViewDidAppear;
+// + (UIViewController *)phg_topViewController;
 
-@end
+// @end

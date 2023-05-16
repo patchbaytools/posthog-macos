@@ -1,6 +1,5 @@
 #include <sys/sysctl.h>
 
-#import <UIKit/UIKit.h>
 #import "PHGPostHog.h"
 #import "PHGPostHogUtils.h"
 #import "PHGPostHogIntegration.h"
@@ -53,7 +52,6 @@ static NSString *GetDeviceModel()
 @property (nonatomic, strong) NSMutableArray *queue;
 @property (nonatomic, strong) NSDictionary *_cachedStaticContext;
 @property (nonatomic, strong) NSURLSessionUploadTask *batchRequest;
-@property (nonatomic, assign) UIBackgroundTaskIdentifier flushTaskID;
 @property (nonatomic, strong) PHGReachability *reachability;
 @property (nonatomic, strong) NSTimer *flushTimer;
 @property (nonatomic, strong) dispatch_queue_t serialQueue;
@@ -85,7 +83,6 @@ static NSString *GetDeviceModel()
         self.cachedStaticContext = [self staticContext];
         self.serialQueue = phg_dispatch_queue_create_specific("com.posthog", DISPATCH_QUEUE_SERIAL);
         self.backgroundTaskQueue = phg_dispatch_queue_create_specific("com.posthog.backgroundTask", DISPATCH_QUEUE_SERIAL);
-        self.flushTaskID = UIBackgroundTaskInvalid;
 
         [self dispatchBackground:^{
             // Check for previous queue data in NSUserDefaults and remove if present.
@@ -104,10 +101,10 @@ static NSString *GetDeviceModel()
                                 forMode:NSDefaultRunLoopMode];
         
 
-        [[NSNotificationCenter defaultCenter] addObserver:self
-                                                 selector:@selector(updateStaticContext)
-                                                     name:UIApplicationWillEnterForegroundNotification
-                                                   object:nil];
+        // [[NSNotificationCenter defaultCenter] addObserver:self
+        //                                          selector:@selector(updateStaticContext)
+        //                                              name:UIApplicationWillEnterForegroundNotification
+        //                                            object:nil];
     }
     return self;
 }
@@ -138,22 +135,38 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
         dict[@"$app_namespace"] = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
     }
 
-    UIDevice *device = [UIDevice currentDevice];
+    NSHost *device = [NSHost currentHost];
 
     dict[@"$device_manufacturer"] = @"Apple";
     dict[@"$device_type"] = @"ios";
     dict[@"$device_model"] = GetDeviceModel();
-    dict[@"$device_id"] = self.configuration.shouldSendDeviceID ? [[device identifierForVendor] UUIDString] : nil;
-    dict[@"$device_name"] = [device model];
+    dict[@"$device_id"] = self.configuration.shouldSendDeviceID ? [device address] : nil;
+    dict[@"$device_name"] = [device name];
+    NSOperatingSystemVersion v = NSProcessInfo.processInfo.operatingSystemVersion;
 
-    dict[@"$os_name"] = device.systemName;
-    dict[@"$os_version"] = device.systemVersion;
 
-    CGSize screenSize = [UIScreen mainScreen].bounds.size;
+    dict[@"$os_name"] = [self osName];
+    dict[@"$os_version"] = [NSString stringWithFormat:@"%ld.%ld.%ld", (long)v.majorVersion, (long)v.minorVersion, (long)v.patchVersion];
+
+    CGSize screenSize = [NSScreen mainScreen].frame.size;
     dict[@"$screen_width"] = @(screenSize.width);
     dict[@"$screen_height"] = @(screenSize.height);
 
     return dict;
+}
+
+- (NSString *)osName {
+  NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:@"/System/Library/CoreServices/Setup Assistant.app/Contents/Resources/en.lproj/Localizable.strings"];
+  NSString *productName = [dict objectForKey:@"INSTALLATION_COMPLETE"];
+  if (productName) {
+      NSRange r = [productName rangeOfString:@" has been"];
+      if (r.location != NSNotFound) {
+          productName = [productName substringToIndex:r.location];
+      } else {
+          productName = nil;
+      }
+  }
+  return productName;
 }
 
 - (void)updateStaticContext
@@ -245,39 +258,6 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
 - (void)dispatchBackgroundAndWait:(void (^)(void))block
 {
     phg_dispatch_specific_sync(_serialQueue, block);
-}
-
-- (void)beginBackgroundTask
-{
-    [self endBackgroundTask];
-
-    phg_dispatch_specific_sync(_backgroundTaskQueue, ^{
-        id<PHGApplicationProtocol> application = [self.posthog configuration].application;
-        if (application) {
-            self.flushTaskID = [application phg_beginBackgroundTaskWithName:@"PostHog.Flush"
-                                                          expirationHandler:^{
-                                                              [self endBackgroundTask];
-                                                          }];
-        }
-    });
-}
-
-- (void)endBackgroundTask
-{
-    // endBackgroundTask and beginBackgroundTask can be called from main thread
-    // We should not dispatch to the same queue we use to flush events because it can cause deadlock
-    // inside @synchronized(self) block for PHGIntegrationsManager as both events queue and main queue
-    // attempt to call forwardSelector:arguments:options:
-    phg_dispatch_specific_sync(_backgroundTaskQueue, ^{
-        if (self.flushTaskID != UIBackgroundTaskInvalid) {
-            id<PHGApplicationProtocol> application = [self.posthog configuration].application;
-            if (application) {
-                [application phg_endBackgroundTask:self.flushTaskID];
-            }
-
-            self.flushTaskID = UIBackgroundTaskInvalid;
-        }
-    });
 }
 
 - (NSString *)description
@@ -449,7 +429,7 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
     [self dispatchBackground:^{
         if ([self.queue count] == 0) {
             PHGLog(@"%@ No queued API calls to flush.", self);
-            [self endBackgroundTask];
+            // [self endBackgroundTask];
             return;
         }
         if (self.batchRequest != nil) {
@@ -514,7 +494,7 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
             if (retry) {
                 [self notifyForName:PHGPostHogRequestDidFailNotification userInfo:batch];
                 self.batchRequest = nil;
-                [self endBackgroundTask];
+                // [self endBackgroundTask];
                 return;
             }
 
@@ -522,7 +502,7 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
             [self persistQueue];
             [self notifyForName:PHGPostHogRequestDidSucceedNotification userInfo:batch];
             self.batchRequest = nil;
-            [self endBackgroundTask];
+            // [self endBackgroundTask];
         }];
     }];
 
@@ -531,7 +511,7 @@ static CTTelephonyNetworkInfo *_telephonyNetworkInfo;
 
 - (void)applicationDidEnterBackground
 {
-    [self beginBackgroundTask];
+    // [self beginBackgroundTask];
     // We are gonna try to flush as much as we reasonably can when we enter background
     // since there is a chance that the user will never launch the app again.
     [self flush];

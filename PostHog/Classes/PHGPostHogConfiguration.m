@@ -2,21 +2,6 @@
 #import "PHGPostHog.h"
 
 
-@implementation UIApplication (PHGApplicationProtocol)
-
-- (UIBackgroundTaskIdentifier)phg_beginBackgroundTaskWithName:(nullable NSString *)taskName expirationHandler:(void (^__nullable)(void))handler
-{
-    return [self beginBackgroundTaskWithName:taskName expirationHandler:handler];
-}
-
-- (void)phg_endBackgroundTask:(UIBackgroundTaskIdentifier)identifier
-{
-    [self endBackgroundTask:identifier];
-}
-
-@end
-
-
 @interface PHGPostHogConfiguration ()
 
 @property (nonatomic, copy, readwrite) NSString *apiKey;
@@ -55,12 +40,12 @@
         self.flushAt = 20;
         self.flushInterval = 30;
         self.maxQueueSize = 1000;
-        self.libraryName = @"posthog-ios";
+        self.libraryName = @"posthog-macos";
         self.libraryVersion = [PHGPostHog version];
         self.payloadFilters = @{
             @"(fb\\d+://authorize#access_token=)([^ ]+)": @"$1((redacted/fb-auth-token))"
         };
-        Class applicationClass = NSClassFromString(@"UIApplication");
+        Class applicationClass = NSClassFromString(@"NSApplication");
         if (applicationClass) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"

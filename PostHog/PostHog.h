@@ -1,4 +1,4 @@
-#import <UIKit/UIKit.h>
+// #import <UIKit/UIKit.h>
 
 //! Project version number for PostHog.
 FOUNDATION_EXPORT double PostHogVersionNumber;
